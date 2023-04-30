@@ -45,7 +45,19 @@ extern "C" {
 
     } llama_token_data;
 
+    struct llama_input {
+        const llama_token * tokens;
+        const float * input_embeddings;
+        const int   n;
+        const int   n_embd;
+    };
+
     typedef void (*llama_progress_callback)(float progress, void *ctx);
+
+    struct model_part {
+        int first_layer;
+        int last_layer;
+    };
 
     struct llama_context_params {
         int n_ctx;   // text context
@@ -58,6 +70,7 @@ extern "C" {
         bool use_mmap;   // use mmap if possible
         bool use_mlock;  // force system to keep model in RAM
         bool embedding;  // embedding mode only
+        model_part part; // load only compartment of the model
 
         // called with a progress value between 0 and 1, pass NULL to disable
         llama_progress_callback progress_callback;
@@ -103,6 +116,12 @@ extern "C" {
       enum llama_ftype   ftype,
             int          nthread);
 
+    LLAMA_API int llama_model_split(
+        const char * fname_inp,
+        const char * fname_out,
+        int          first_layer,
+        int          last_layer);
+
     // Apply a LoRA adapter to a loaded model
     // path_base_model is the path to a higher quality model to use as a base for
     // the layers modified by the adapter. Can be NULL to use the current loaded model.
@@ -139,8 +158,7 @@ extern "C" {
     // Returns 0 on success
     LLAMA_API int llama_eval(
             struct llama_context * ctx,
-               const llama_token * tokens,
-                             int   n_tokens,
+               const llama_input   input,
                              int   n_past,
                              int   n_threads);
 
@@ -156,9 +174,10 @@ extern "C" {
                              int   n_max_tokens,
                             bool   add_bos);
 
-    LLAMA_API int llama_n_vocab(struct llama_context * ctx);
-    LLAMA_API int llama_n_ctx  (struct llama_context * ctx);
-    LLAMA_API int llama_n_embd (struct llama_context * ctx);
+    LLAMA_API int llama_n_vocab (struct llama_context * ctx);
+    LLAMA_API int llama_n_ctx   (struct llama_context * ctx);
+    LLAMA_API int llama_n_embd  (struct llama_context * ctx);
+    LLAMA_API int llama_n_layer (struct llama_context * ctx);
 
     // Token logits obtained from the last call to llama_eval()
     // The logits for the last token are stored in the last row
