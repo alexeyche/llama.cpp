@@ -104,6 +104,11 @@ extern "C" {
                              const char * path_model,
             struct llama_context_params   params);
 
+    LLAMA_API struct llama_context * llama_init_from_buffer(
+        char * buffer,
+        int size,
+        struct llama_context_params   params);
+
     // Frees all allocated memory
     LLAMA_API void llama_free(struct llama_context * ctx);
 

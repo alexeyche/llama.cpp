@@ -14,6 +14,7 @@
 
 #include <string>
 #include <vector>
+#include <memory>
 
 #ifdef __has_include
     #if __has_include(<unistd.h>)
@@ -66,10 +67,90 @@ static std::string format(const char * fmt, ...) {
     return std::string(buf.data(), size);
 }
 
-struct llama_file {
+struct llama_io {
+
+    static std::unique_ptr<llama_io> from_file(const char* fname, const char * mode);
+
+    static std::unique_ptr<llama_io> from_buffer(char* buffer, size_t size);
+
+    virtual void read_raw(void * ptr, size_t size) = 0;
+
+    virtual void write_raw(const void * ptr, size_t size) = 0;
+
+    virtual void seek(size_t offset, int whence) = 0;
+
+    virtual size_t tell() const = 0;
+
+    virtual size_t size() const = 0;
+
+    std::uint32_t read_u32() {
+        std::uint32_t ret;
+        read_raw(&ret, sizeof(ret));
+        return ret;
+    }
+
+    std::string read_string(std::uint32_t len) {
+        std::vector<char> chars(len);
+        read_raw(chars.data(), len);
+        return std::string(chars.data(), len);
+    }
+
+    void write_u32(std::uint32_t val) {
+        write_raw(&val, sizeof(val));
+    }
+
+    virtual ~llama_io() {}
+};
+
+struct llama_buff: public llama_io {
+    char* buff;
+    size_t _size;
+    size_t i;
+
+    llama_buff(char* _buff, size_t s)
+        : buff(_buff), _size(s), i(0) {}
+
+    size_t tell() const {
+        return i;
+    }
+
+    size_t size() const {
+        return _size;
+    }
+
+    void seek(size_t offset, int whence) {
+        switch (whence) {
+            case SEEK_SET:
+                i = offset;
+            case SEEK_END:
+                i = _size - 1;
+            case SEEK_CUR:
+                i += offset;
+        }
+    }
+
+    void read_raw(void * ptr, size_t size) {
+        if (size == 0) {
+            return;
+        }
+
+        memcpy(ptr, buff + i, size);
+        i += size;
+    }
+
+    void write_raw(const void * ptr, size_t size) {
+        if (size == 0) {
+            return;
+        }
+        memcpy(buff + i, ptr, size);
+        i += size;
+    }
+};
+
+struct llama_file: public llama_io {
     // use FILE * so we don't have to re-open the file to mmap
     FILE * fp;
-    size_t size;
+    size_t _size;
 
     llama_file(const char * fname, const char * mode) {
         fp = std::fopen(fname, mode);
@@ -77,8 +158,12 @@ struct llama_file {
             throw format("failed to open %s: %s", fname, std::strerror(errno));
         }
         seek(0, SEEK_END);
-        size = tell();
+        _size = tell();
         seek(0, SEEK_SET);
+    }
+
+    size_t size() const {
+        return _size;
     }
 
     size_t tell() const {
@@ -114,18 +199,6 @@ struct llama_file {
         }
     }
 
-    std::uint32_t read_u32() {
-        std::uint32_t ret;
-        read_raw(&ret, sizeof(ret));
-        return ret;
-    }
-
-    std::string read_string(std::uint32_t len) {
-        std::vector<char> chars(len);
-        read_raw(chars.data(), len);
-        return std::string(chars.data(), len);
-    }
-
     void write_raw(const void * ptr, size_t size) {
         if (size == 0) {
             return;
@@ -137,16 +210,20 @@ struct llama_file {
         }
     }
 
-    void write_u32(std::uint32_t val) {
-        write_raw(&val, sizeof(val));
-    }
-
     ~llama_file() {
         if (fp) {
             std::fclose(fp);
         }
     }
 };
+
+std::unique_ptr<llama_io> llama_io::from_file(const char* fname, const char * mode) {
+    return std::unique_ptr<llama_io>(new llama_file(fname, mode));
+}
+
+std::unique_ptr<llama_io> llama_io::from_buffer(char* buffer, size_t size) {
+    return std::unique_ptr<llama_io>(new llama_buff(buffer, size));
+}
 
 #if defined(_WIN32)
 static std::string llama_format_win_err(DWORD err) {
@@ -168,24 +245,27 @@ struct llama_mmap {
 
     llama_mmap(const llama_mmap &) = delete;
 
+    llama_mmap(void* _addr, size_t _size): addr(_addr), size(_size) {
+    }
+
 #ifdef _POSIX_MAPPED_FILES
     static constexpr bool SUPPORTED = true;
 
     llama_mmap(struct llama_file * file, bool prefetch = true) {
-        size = file->size;
+        size = file->size();
         int fd = fileno(file->fp);
         int flags = MAP_SHARED;
 #ifdef __linux__
         flags |= MAP_POPULATE;
 #endif
-        addr = mmap(NULL, file->size, PROT_READ, flags, fd, 0);
+        addr = mmap(NULL, file->size(), PROT_READ, flags, fd, 0);
         if (addr == MAP_FAILED) {
             throw format("mmap failed: %s", strerror(errno));
         }
 
         if (prefetch) {
             // Advise the kernel to preload the mapped memory
-            if (madvise(addr, file->size, MADV_WILLNEED)) {
+            if (madvise(addr, file->size(), MADV_WILLNEED)) {
                 fprintf(stderr, "warning: madvise(.., MADV_WILLNEED) failed: %s\n",
                         strerror(errno));
             }
