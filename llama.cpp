@@ -614,7 +614,7 @@ struct llama_model_loader {
         this->use_mmap = use_mmap;
         this->part = part;
         if (this->part.first_layer == -1) {
-            part = {0, (int) first_file->hparams.n_layer};
+            this->part = {0, (int) first_file->hparams.n_layer};
         }
         for (llama_load_tensor & lt : tensors_map.tensors) {
             lt.calc_all();

@@ -34,8 +34,8 @@ endif
 #
 
 # keep standard at C11 and C++11
-CFLAGS   = -I.              -O3 -DNDEBUG -std=c11   -fPIC
-CXXFLAGS = -I. -I./examples -O3 -DNDEBUG -std=c++11 -fPIC
+CFLAGS   = -I.              -O0 -g -DNDEBUG -std=c11   -fPIC
+CXXFLAGS = -I. -I./examples -O0 -g -DNDEBUG -std=c++11 -fPIC
 LDFLAGS  =
 
 # warnings
